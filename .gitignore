@@ -1,0 +1,46 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual Environment
+.venv/
+
+
+# VS Code
+.vscode/
+
+# TensorFlow / Keras
+*.h5
+*.hdf5
+*.pb
+*.pkl
+*.pickle
+saved_model/
+checkpoints/
+
+# Logs
+logs/
+pipeline_logs/
+*.log
+
+# Generated plots
+*.png
+
+# Generated data / model output files
+*.csv
+*.parquet
+*.txt
+*.json
+
+# Re-include tracked text files
+!requirements.txt
+!data/observations/quad_lens_observations.txt
+
+# Re-include .keras model files
+!*.keras
+
+# Pipeline intermediate files
+pipeline/FI3input
+pipeline/FI3output
+pipeline/critcurves.csv

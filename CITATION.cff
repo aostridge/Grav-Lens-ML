@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite it using the metadata below."
+type: software
+
+authors:
+  - family-names: ""        # FILL IN: e.g. "Smith"
+    given-names: ""         # FILL IN: e.g. "Jane A."
+    orcid: ""               # FILL IN: e.g. "https://orcid.org/0000-0000-0000-0000"
+    affiliation: ""         # FILL IN: e.g. "University of Edinburgh"
+
+title: "Speeding up Gravitational Lens Mass Models with Machine Learning: Applications in X-ray Astronomy"
+date-released: ""           # FILL IN: e.g. "2026-06-01"
+version: "1.0.0"               
+doi: ""                     # FILL IN: e.g. "10.5281/zenodo.xxxxxxx"
+preferred-citation:
+  type: article
+  authors:
+    - family-names: ""      # FILL IN: same as above
+      given-names: ""       # FILL IN: same as above
+      orcid: ""             # FILL IN: same as above
+  title: ""                 # FILL IN: paper title
+  journal: ""               # FILL IN: e.g. "Monthly Notices of the Royal Astronomical Society"
+  year:                     # FILL IN: e.g. 2026
+  doi: ""                   # FILL IN: paper DOI once assigned
+
+repository-code: "https://github.com/aostridge/Grav-Lens-ML"
+license: "MIT"

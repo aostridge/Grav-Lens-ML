@@ -1,0 +1,7 @@
+set omitcore=0.00061
+gridmode 2
+data SourceGridding.dat
+set chimode=1
+set ftol=1.0e-8
+startup SourceGridding.start
+findimg3 FI3input FI3output
