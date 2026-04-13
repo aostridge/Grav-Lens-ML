@@ -1,0 +1,40 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Virtual Environment
+.venv/
+
+
+# VS Code
+.vscode/
+
+# Logs
+pipeline_logs/
+*.log
+
+# Generated plots
+*.png
+
+# Generated data / model output files
+*.csv
+*.parquet
+*.txt
+*.json
+
+# Re-include tracked text files
+!requirements.txt
+!data/observations/quad_lens_observations.txt
+
+# Re-include .keras model files
+!*.keras
+
+# Pipeline intermediate files
+pipeline/FI3input
+pipeline/FI3output
+pipeline/critcurves.csv
+
+# Per-run lensmodel output folders (contain .dat/.sm/.start/.input files not
+# covered by the extension-based ignores above)
+data/observations/Results_*/

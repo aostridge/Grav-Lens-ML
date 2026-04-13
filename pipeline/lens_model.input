@@ -1,0 +1,10 @@
+gridmode 2
+data lens_model.dat
+set chimode=1
+set checkparity = 0
+hval=0.678
+set zlens=0.1841
+set zsrc=2.38
+set ftol=1.0e-8
+startup lens_model.start
+findimg3 FI3input FI3output
