@@ -26,6 +26,31 @@ BINARY_LENGTH    = 10
 BINARY_ONES      = 4
 FIXED_POSITIONS  = {7: 0, 8: 0, 9: 0}  # last 3 parameter bits always fixed to 0
 
+# v1.1.0 addition (not in the published thesis/paper methodology): bound the
+# mass-parameter prediction before it seeds the lensmodel starting guess. The
+# network is trained on b' in [0.1, 5.5] (paper §2.1) and can extrapolate
+# poorly right at the edges of that range (paper §5.3.1); an unbounded
+# prediction could otherwise hand lensmodel a negative or wildly oversized
+# starting mass. The bounds are deliberately looser than the training range
+# so they only catch genuine outliers, not normal edge-of-range predictions.
+MASS_PREDICTION_MIN = 0.01
+MASS_PREDICTION_MAX = 10.0
+
+# v1.1.0 addition (not in the published thesis/paper methodology): a hard
+# iteration cap and a slow-decay early exit. The published stall counter
+# (TOL_COUNT) only catches iterations where chi-squared fails to improve at
+# all; it does not catch a system that keeps inching downward by a tiny
+# amount each iteration without ever converging, which can otherwise run for
+# hundreds of wasted iterations. MAX_ITERATIONS bounds worst-case run time per
+# observation; the decay-window check triggers the same angle-rotation/
+# give-up logic as a stall once progress over a rolling window falls below
+# CHI_DECAY_MIN. Neither changes the convergence criterion (CHI_SQR_ACCURACY)
+# or any reported result — they only bound how long the optimiser is allowed
+# to keep trying.
+MAX_ITERATIONS   = 1000
+CHI_DECAY_WINDOW = 100
+CHI_DECAY_MIN    = 0.005
+
 CHECKPOINT_EVERY = 10    # write intermediate results CSV after every N completed observations
 
 # =============================================================================
@@ -381,6 +406,9 @@ def optimize_model(row, output_path, results_dir_name, acc, tolerance, expire_li
     angle_rotated   = False
     result_prefix   = ''
     iteration       = 0
+    chi_history     = []            # rolling window for decay check (v1.1.0)
+    best_chi_so_far = float('inf')  # global best across all lensmodel subprocess calls (v1.1.0)
+    best_model_str  = None          # model string that achieved best_chi_so_far (v1.1.0)
 
     print(f"\n[{row['Image']}] Starting optimisation | predicted mass={row['Predicted Mass']:.4f}, ellip={row['Predicted Ellip']:.4f}", flush=True)
 
@@ -403,9 +431,9 @@ def optimize_model(row, output_path, results_dir_name, acc, tolerance, expire_li
     # input_file fields are static for the entire optimisation run — set and write once.
     # Use relative paths: lensmodel runs from results_folder_path (2 levels below output_path),
     # so ../../lens_model.* resolves correctly without spaces that lensmodel cannot handle.
-    input_file.iloc[1, :] = ['data ../../lens_model.dat']
-    input_file.iloc[8, :] = ['startup ../../lens_model.start']
-    input_file.iloc[9, :] = ['optimize']
+    input_file.iloc[2, :]  = ['data ../../lens_model.dat']
+    input_file.iloc[9, :]  = ['startup ../../lens_model.start']
+    input_file.iloc[10, :] = ['optimize']
     input_file.to_csv(f'{output_path}lens_model.input', index=False, header=None)
 
     while not finished:
@@ -417,7 +445,9 @@ def optimize_model(row, output_path, results_dir_name, acc, tolerance, expire_li
             data_file.iloc[9, :]  = f'{row[f"Image C RA{image_suffix}"]} {row[f"Image C Dec{image_suffix}"]} {row["Image C Flux"]} 0.0005 1000000 0. 1000'
             data_file.iloc[10, :] = f'{row[f"Image D RA{image_suffix}"]} {row[f"Image D Dec{image_suffix}"]} {row["Image D Flux"]} 0.0005 1000000 0. 1000'
         else:
-            lens_model_str  = read_best_start(f"{row['Image']}/best.start")
+            # v1.1.0: use the tracked global best; fall back to best.start only on the
+            # very first non-first-pass iteration before best_model_str is populated.
+            lens_model_str  = best_model_str or read_best_start(f"{row['Image']}/best.start")
             model_str_parts = lens_model_str.split()
             data_file.iloc[1, :] = f'{model_str_parts[2]} {model_str_parts[3]} 0.05'
         data_file.to_csv(f'{output_path}lens_model.dat', index=False, header=None)
@@ -460,15 +490,26 @@ def optimize_model(row, output_path, results_dir_name, acc, tolerance, expire_li
             print(f"  [{row['Image']}] iter={iteration} -> chi_sqr={chi_sqr:.4f}", flush=True)
 
             if not is_first_pass:
-                # Stall detection: did chi_sqr improve meaningfully this iteration?
-                change = tolerance * prev_chi
-                if prev_chi - chi_sqr < change:
+                # v1.1.0: track the global best independently of lensmodel's
+                # per-call output files, which get overwritten every subprocess
+                # call — chi_sqr can otherwise jump upward on a bad run and
+                # corrupt stall detection / final result saving.
+                # Save prev_best BEFORE updating so the stall threshold uses the old
+                # reference; comparing post-update gives best-best=0 which always stalls.
+                prev_best = best_chi_so_far
+                if chi_sqr < best_chi_so_far:
+                    best_chi_so_far = chi_sqr
+                    best_model_str  = read_best_start(f"{row['Image']}/best.start")
+
+                # Stall detection: did the global best improve meaningfully this iteration?
+                change = tolerance * prev_best
+                if prev_best - best_chi_so_far < change:
                     stall_count += 1
-                    print(f"  [{row['Image']}] stall {stall_count}/{TOL_COUNT} (prev={prev_chi:.4f}, current={chi_sqr:.4f}, threshold={change:.4f})", flush=True)
+                    print(f"  [{row['Image']}] stall {stall_count}/{TOL_COUNT} (best={best_chi_so_far:.4f}, current={chi_sqr:.4f}, threshold={change:.4f})", flush=True)
                 else:
                     stall_count = 0
-                if chi_sqr < acc:
-                    print(f"  [{row['Image']}] CONVERGED chi_sqr={chi_sqr:.4f} < acc={acc}", flush=True)
+                if best_chi_so_far < acc:
+                    print(f"  [{row['Image']}] CONVERGED best_chi={best_chi_so_far:.4f} < acc={acc}", flush=True)
                     finished = True
                 elif stall_count >= TOL_COUNT:
                     if not angle_rotated:
@@ -476,6 +517,8 @@ def optimize_model(row, output_path, results_dir_name, acc, tolerance, expire_li
                         df.at[row.name, 'Ellipticity Angle'] += math.pi / 2
                         angle_rotated = True
                         is_first_pass = True
+                        best_chi_so_far = float('inf')
+                        best_model_str  = None
                     else:
                         print(f"  [{row['Image']}] Stall limit reached after angle rotation — giving up", flush=True)
                         finished = True
@@ -494,6 +537,32 @@ def optimize_model(row, output_path, results_dir_name, acc, tolerance, expire_li
             prev_chi = chi_sqr
             timeout_count = 0
 
+            # v1.1.0 — Hard cap: absolute iteration limit
+            if not finished and iteration >= MAX_ITERATIONS:
+                print(f"  [{row['Image']}] MAX_ITERATIONS ({MAX_ITERATIONS}) reached — giving up", flush=True)
+                finished = True
+
+            # v1.1.0 — Slow-decay check: track the global best over the window, not the
+            # noisy per-run chi_sqr, so negative jumps don't mask stagnation.
+            if not finished and not is_first_pass:
+                chi_history.append(best_chi_so_far)
+                if len(chi_history) > CHI_DECAY_WINDOW:
+                    chi_history.pop(0)
+                if len(chi_history) == CHI_DECAY_WINDOW:
+                    window_drop = (chi_history[0] - chi_history[-1]) / max(chi_history[0], 1e-9)
+                    if window_drop < CHI_DECAY_MIN and best_chi_so_far > acc:
+                        if not angle_rotated:
+                            print(f"  [{row['Image']}] Slow decay over {CHI_DECAY_WINDOW} iters (drop={window_drop:.4f}) — rotating angle by 90deg", flush=True)
+                            df.at[row.name, 'Ellipticity Angle'] += math.pi / 2
+                            angle_rotated = True
+                            is_first_pass = True
+                            best_chi_so_far = float('inf')
+                            best_model_str  = None
+                            chi_history.clear()
+                        else:
+                            print(f"  [{row['Image']}] Slow decay after angle rotation — giving up", flush=True)
+                            finished = True
+
         except subprocess.TimeoutExpired:
             timeout_count += 1
             print(f"  [{row['Image']}] iter={iteration} TIMEOUT ({timeout_count}/{expire_limit})", flush=True)
@@ -501,8 +570,8 @@ def optimize_model(row, output_path, results_dir_name, acc, tolerance, expire_li
                 if not angle_rotated:
                     result_prefix = 'Expired '
                 if not is_first_pass:
-                    df.at[row.name, f'{result_prefix}Chi Sqr'] = chi_sqr
-                    df.at[row.name, f'{result_prefix}Best Mass Model'] = lens_model_str
+                    df.at[row.name, f'{result_prefix}Chi Sqr'] = best_chi_so_far
+                    df.at[row.name, f'{result_prefix}Best Mass Model'] = best_model_str or lens_model_str
                     df.at[row.name, f'{result_prefix}Best Source Pos'] = read_source_best_data(
                         f"{row['Image']}/best-img.dat"
                     )
@@ -516,14 +585,16 @@ def optimize_model(row, output_path, results_dir_name, acc, tolerance, expire_li
                     df.at[row.name, 'Ellipticity Angle'] += math.pi / 2
                     angle_rotated   = True
                     timeout_count   = 0
+                    best_chi_so_far = float('inf')
+                    best_model_str  = None
                 else:
                     print(f"  [{row['Image']}] Expire limit reached after angle rotation — giving up", flush=True)
                     df.at[row.name, 'Subprocess Duration'] = 'NaN'
                     save_new_model_diff(row)
                     return
 
-    df.at[row.name, 'Chi Sqr']         = chi_sqr
-    df.at[row.name, 'Best Mass Model'] = lens_model_str
+    df.at[row.name, 'Chi Sqr']         = best_chi_so_far
+    df.at[row.name, 'Best Mass Model'] = best_model_str
     df.at[row.name, 'Best Source Pos'] = read_source_best_data(f"{row['Image']}/best-img.dat")
     end_time = time.time()
     df.at[row.name, 'Subprocess Duration'] = end_time - start_time
@@ -946,7 +1017,8 @@ ellip_loaded_model = tf.keras.models.load_model(MODEL_PATH / MODEL_NAME_ELLIP)
 mass_prediction        = np.asarray(mass_loaded_model.predict(df[FEATURE_COLUMNS], verbose=0))
 ellipticity_prediction = np.asarray(ellip_loaded_model.predict([df[FEATURE_COLUMNS]], verbose=0))
 
-# Clamp ellipticity to valid range (0, 1)
+# Clamp predictions to physically sane ranges before they seed lensmodel (v1.1.0)
+mass_prediction        = np.clip(mass_prediction, MASS_PREDICTION_MIN, MASS_PREDICTION_MAX)
 ellipticity_prediction = np.clip(ellipticity_prediction, 0.01, 0.99)
 
 df['Predicted Mass']  = mass_prediction

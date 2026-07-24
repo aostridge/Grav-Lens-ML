@@ -1,3 +1,4 @@
+set omitcore=0.00001
 gridmode 2
 data lens_model.dat
 set chimode=1

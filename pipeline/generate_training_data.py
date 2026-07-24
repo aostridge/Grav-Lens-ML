@@ -29,6 +29,15 @@ ELLIP_STEP = 0.05
 SOURCES_PER_MODEL = 10_000
 PERCENTAGE_TO_CAUSTIC = 0.998  # 99.8% of caustic semi-major axis (paper §3.1)
 NO_PROB_SCALING = 1.2          # scaling factor for discrete caustic mode only
+# v1.1.0 addition (not in the published thesis/paper methodology): a small
+# adaptive omitcore tolerance, scaled to the lens mass/ellipticity so it stays
+# a tiny fraction of the model's characteristic scale. This excludes a small
+# region around the singular SIE core from lensmodel's critical-curve solver,
+# guarding against rare numerical instabilities very close to the lens centre
+# (the surface density formally diverges as r->0 for an isothermal profile).
+# Purely a numerical-robustness aid — it does not alter the physical model,
+# the source-gridding algorithm, or any reported result.
+OMITCORE_DIVISOR = 10_000
 SIGMA_DIVISOR = 3.7
 DIST_STEP_DIVISOR = 1_000
 PERIM_SCALE = 104
@@ -236,8 +245,11 @@ for combination in lens_param_combinations:
         f"ellip_angle: {ellip_angle_val}, shear: {shear_val}, shear_angle: {shear_angle_val}"
     )
 
+    omitcore = np.round((mass_param_val + ellip_val) / OMITCORE_DIVISOR, 5)
+
     # --- Modify and write .input file (plotcrit pass) ---
-    input_lines[0]  = f'gridmode {GRIDMODE}'
+    input_lines[0]  = f'set omitcore={omitcore}'
+    input_lines[1]  = f'gridmode {GRIDMODE}'
     input_lines[-1] = 'plotcrit critcurves.csv'
     write_lines(INPUT_FILE_PATH, input_lines)
 

@@ -153,6 +153,25 @@ The paper model files use the `_paper` suffix so they are never overwritten by a
 
 ---
 
+## Changelog
+
+### v1.1.0 — pipeline robustness additions (beyond the published methodology)
+
+These four changes are **not** part of the methodology described in the paper — they only affect fresh pipeline runs going forward, not the results already reported (which come from the pre-trained `_paper.keras` models above, produced under the v1.0.0 baseline). Each is a numerical-robustness or safety-net addition; none changes the underlying physical model, the source-gridding algorithm, or the optimiser's convergence criterion.
+
+| Change | Where | Why |
+|---|---|---|
+| Adaptive `omitcore` tolerance | `generate_training_data.py`, `lens_model.input` | Excludes a small region around the singular SIE core from lensmodel's critical-curve solver, guarding against rare numerical instabilities very close to the lens centre (surface density formally diverges as *r* → 0 for an isothermal profile). Scales with `(b' + e) / 10000` — a tiny fraction of the model's characteristic scale. |
+| Mass-prediction clamp `[0.01, 10]` | `fit_lens_model.py` | Bounds the neural network's mass-parameter prediction before it seeds the `lensmodel` starting guess. The network is trained on *b′* ∈ [0.1, 5.5] and can extrapolate poorly at the edges of that range (paper §5.3.1); without a clamp, an outlier prediction could hand the optimiser a negative or wildly oversized starting mass. |
+| Global-best χ² tracking | `fit_lens_model.py` | `lensmodel` overwrites its own output files (`best-chi.dat`, `best.start`) on every subprocess call, so χ² can jump upward on a bad run. The optimiser now tracks the best result seen across all calls independently, so stall detection and the final saved model reflect the true optimum found rather than whatever the last call happened to produce. |
+| Iteration cap and slow-decay early exit | `fit_lens_model.py` | `MAX_ITERATIONS = 1000` bounds worst-case run time per observation. A rolling-window check (`CHI_DECAY_WINDOW = 100`, `CHI_DECAY_MIN = 0.005`) catches systems that keep improving by a negligible amount each iteration without ever converging — a failure mode the published stall counter (`TOL_COUNT`) doesn't catch, since that only fires when χ² stops improving *at all*. Neither addition changes the convergence criterion (`CHI_SQR_ACCURACY`) — only how long the optimiser is allowed to keep trying before giving up. |
+
+### v1.0.0 — initial release, matches published methodology
+
+Reproduces the pipeline exactly as described in the paper — see [Pre-Trained Paper Models](#pre-trained-paper-models) above. All constants and defaults match the paper's Sections 2–4 (source gridding, network architecture and training, optimisation thresholds).
+
+---
+
 ## Dependencies
 
 ### External Software
